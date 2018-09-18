@@ -28,6 +28,12 @@ def quadratic_cost_deriv(output_a, y):
     return output_a - y
 
 
+def randomly_batch(sequence, batch_size):
+    random.shuffle(sequence)
+    return [sequence[i:i + batch_size]
+            for i in range(0, len(sequence), batch_size)]
+
+
 class NeuralNetwork:
     def __init__(self, layers):
         self.layers = layers
@@ -37,17 +43,18 @@ class NeuralNetwork:
 
     def train_with_sgd(self, training_data, epochs=30, batch_size=10,
                        learning_rate=3.0):
-        for epoch in range(epochs):
-            random.shuffle(training_data)
-            batches = [training_data[i:i+batch_size]
-                       for i in range(0, len(training_data), batch_size)]
 
+        for epoch in range(epochs):
+            batches = randomly_batch(training_data, batch_size)
             for batch in batches:
-                step_size = learning_rate/len(batch)
-                dCdb, dCdw = self.backpropagate(batch)
-                self.descend_gradient(step_size, dCdb, dCdw)
+                self.update_weights_and_biases(batch, learning_rate)
 
             print(f"Epoch {epoch+1} complete")
+
+    def update_weights_and_biases(self, example_data, learning_rate):
+        step_size = learning_rate / len(example_data)
+        dCdb, dCdw = self.backpropagate(example_data)
+        self.descend_gradient(step_size, dCdb, dCdw)
 
     def descend_gradient(self, step_size, dCdb, dCdw):
         self.biases = [b - step_size * db
@@ -63,20 +70,27 @@ class NeuralNetwork:
             zs, activations = self.feedforward(x)
 
             delta = [np.zeros(b.shape) for b in self.biases]  # init
-            delta[-1] = (quadratic_cost_deriv(activations[-1], y)
-                         * sigmoid_deriv(zs[-1]))
+            delta[-1] = self.output_layer_error(zs, activations, y)
 
             for lyr in range(2, len(self.layers)):
-                delta[-lyr] = (np.matmul(np.transpose(self.weights[-lyr+1]),
-                                         delta[-lyr+1])
-                               * sigmoid_deriv(zs[-lyr]))
+                delta[-lyr] = self.hidden_layer_error(lyr, delta, zs)
 
+            # FIXME (dCdb/w update - overwrites, throwing away value for all but last example)
             for lyr in range(len(self.layers)):
-                # FIXME (dCdb/w update - overwrites, throwing away value for all but last example)
                 dCdb[-lyr] = delta[-lyr]
                 dCdw[-lyr] = np.dot(delta[-lyr], activations[-lyr-1].transpose())
 
         return dCdb, dCdw
+
+    @staticmethod
+    def output_layer_error(zs, activations, y):
+        return (quadratic_cost_deriv(activations[-1], y)
+                * sigmoid_deriv(zs[-1]))
+
+    def hidden_layer_error(self, layer, delta, zs):
+        return (np.matmul(np.transpose(self.weights[-layer+1]),
+                          delta[-layer+1])
+                * sigmoid_deriv(zs[-layer]))
 
     def feedforward(self, x):
         zs, activations = [], [x]
